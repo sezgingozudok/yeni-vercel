@@ -1,0 +1,19 @@
+﻿Yüksek Stok - Webe Alma
+
+Hazır klasör:
+C:\Users\Sezgin\Desktop\Yuksek-Stok
+
+Vercel ayarları:
+- Framework Preset: Vite
+- Build Command: npm run build
+- Output Directory: dist
+- Install Command: npm install
+
+Giriş:
+Yusuf / 12345
+
+Supabase bağlantısı koda eklidir.
+Veriler products, sales ve users tablolarına yazılır.
+
+Not:
+İlk yayın için çalışır durumdadır. Daha sonra güvenliği sıkılaştırmak için Supabase Auth eklenebilir.

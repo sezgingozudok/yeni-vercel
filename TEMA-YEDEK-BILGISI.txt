@@ -1,0 +1,7 @@
+﻿Antrasit tema uygulanmadan önceki yedek klasör Masaüstündedir.
+
+Beğenmezsen geri dönülecek yedek:
+C:\Users\Sezgin\Desktop\Yuksek-Stok-Yedek-20260524-230016
+
+Güncel açılacak dosya:
+C:\Users\Sezgin\Desktop\Yuksek-Stok-Calistir.html

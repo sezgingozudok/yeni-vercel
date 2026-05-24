@@ -1,0 +1,17 @@
+﻿Yüksek Stok projesi
+
+En kolay açma:
+- Masaüstündeki Yuksek-Stok-Calistir.html dosyasına çift tıkla.
+- Giriş bilgisi: Yusuf / 12345
+
+Yönetici paneli:
+- Yönetici kendi şifresini panelden değiştirebilir.
+
+Klasör:
+- C:\Users\Sezgin\Desktop\Yuksek-Stok
+
+Kod dosyası:
+- C:\Users\Sezgin\Desktop\Yuksek-Stok\src\App.jsx
+
+Not:
+- Bu bilgisayarda npm bulunamadığı için ayrıca çift tıklanabilir HTML sürümü hazırlandı.

@@ -1,0 +1,1025 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Yüksek Stok</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    html, body, #root { margin: 0; min-height: 100%; }
+    body { background: #0f1117; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useEffect, useState } = React;
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  BAŞLANGIÇ KULLANICISI — Yönetici silinemeyen ana admin ║
+// ╚══════════════════════════════════════════════════════════╝
+const SUPER_ADMIN = { kullaniciAdi: "Yusuf", sifre: "12345", yetki: "Yönetici" };
+const SUPABASE_URL = "https://mdhtzirpkjejlrbwwwkw.supabase.co";
+const SUPABASE_KEY = "sb_publishable_cELISZREV0oXwwFZOtcyxg_m094EZW1";
+const SUPABASE_REST = `${SUPABASE_URL}/rest/v1`;
+
+const dbHeaders = (extra = {}) => ({
+  apikey: SUPABASE_KEY,
+  Authorization: `Bearer ${SUPABASE_KEY}`,
+  "Content-Type": "application/json",
+  ...extra
+});
+
+async function dbRequest(path, options = {}) {
+  const res = await fetch(`${SUPABASE_REST}/${path}`, { ...options, headers: dbHeaders(options.headers || {}) });
+  if (!res.ok) throw new Error(await res.text());
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+const dbSelect = (table, query = "") => dbRequest(`${table}${query}`);
+const dbInsert = (table, data) => dbRequest(table, { method:"POST", headers:{ Prefer:"return=representation" }, body:JSON.stringify(data) });
+const dbUpdate = (table, id, data) => dbRequest(`${table}?id=eq.${id}`, { method:"PATCH", headers:{ Prefer:"return=representation" }, body:JSON.stringify(data) });
+const dbDelete = (table, id) => dbRequest(`${table}?id=eq.${id}`, { method:"DELETE" });
+
+const fromUser = (u) => ({ id:u.id, kullaniciAdi:u.username, sifre:u.password, yetki:u.role });
+const toUser = (u) => ({ username:u.kullaniciAdi, password:u.sifre, role:u.yetki });
+const fromProduct = (p) => ({ id:p.id, ad:p.name, cins:p.type, marka:p.brand, seriNo:p.serial_no || "", adet:Number(p.quantity)||0, alisFiyati:Number(p.purchase_price)||0 });
+const toProduct = (p) => ({ name:p.ad, type:p.cins, brand:p.marka, serial_no:p.seriNo || null, quantity:Number(p.adet)||0, purchase_price:Number(p.alisFiyati)||0 });
+const fromSale = (s) => ({
+  id:s.id,
+  productId:s.product_id,
+  parcaAd:s.product_name,
+  cins:s.type,
+  marka:s.brand,
+  seriNo:s.serial_no || "",
+  adet:Number(s.quantity)||0,
+  fiyat:Number(s.sale_price)||0,
+  alisFiyati:Number(s.purchase_price)||0,
+  musteri:s.customer,
+  tarih:new Date(s.sold_at).toLocaleString("tr-TR"),
+  satanKullanici:s.sold_by || "—"
+});
+
+const CINS_RENKLERI = {
+  "İşlemci":    { bg: "rgba(255,152,0,0.12)",   text: "#ffa94d", border: "rgba(255,152,0,0.3)" },
+  "Ekran Kartı":{ bg: "rgba(76,175,80,0.12)",   text: "#66bb6a", border: "rgba(76,175,80,0.3)" },
+  "Anakart":    { bg: "rgba(33,150,243,0.12)",  text: "#42a5f5", border: "rgba(33,150,243,0.3)" },
+  "RAM":        { bg: "rgba(156,39,176,0.12)",  text: "#ab47bc", border: "rgba(156,39,176,0.3)" },
+  "SSD":        { bg: "rgba(233,30,99,0.12)",   text: "#f48fb1", border: "rgba(233,30,99,0.3)" },
+};
+const CINS_LISTESI = ["İşlemci", "Ekran Kartı", "Anakart", "RAM", "SSD"];
+
+const initialStok = [
+  { id: 1, ad: "Ryzen 5 5600X",       cins: "İşlemci",    marka: "AMD",     seriNo: "AMD-2023-001", adet: 4, alisFiyati: 3200 },
+  { id: 2, ad: "RTX 4070 Ti",         cins: "Ekran Kartı",marka: "NVIDIA",  seriNo: "NV-TI-007",   adet: 2, alisFiyati: 18500 },
+  { id: 3, ad: "DDR5 32GB 6000MHz",   cins: "RAM",        marka: "Kingston",seriNo: "KNG-RAM-044", adet: 7, alisFiyati: 2800 },
+  { id: 4, ad: "B650M Steel Legend",  cins: "Anakart",    marka: "ASRock",  seriNo: "ASR-B650-09", adet: 1, alisFiyati: 4600 },
+  { id: 5, ad: "990 Pro 2TB NVMe",    cins: "SSD",        marka: "Samsung", seriNo: "SAM-990-2TB", adet: 3, alisFiyati: 3900 },
+];
+
+// ─── ORTAK INPUT STİLİ ────────────────────────────────────
+const inp = (extra = {}) => ({
+  width: "100%", background: "#13162a", border: "1px solid #2a2d3e",
+  borderRadius: 10, padding: "10px 14px", color: "#e2e8f0", fontSize: 14,
+  fontFamily: "'Outfit', sans-serif", outline: "none", boxSizing: "border-box", ...extra
+});
+
+// ════════════════════════════════════════════════════════════
+//  LOGIN EKRANI
+// ════════════════════════════════════════════════════════════
+function LoginEkrani({ onGiris, kullanicilar, superAdmin }) {
+  const [kAdi, setKAdi]           = useState("");
+  const [sifre, setSifre]         = useState("");
+  const [hata, setHata]           = useState("");
+  const [sifreGoster, setSG]      = useState(false);
+  const [yukleniyor, setYuk]      = useState(false);
+
+  const girisYap = () => {
+    if (!kAdi || !sifre) { setHata("Lütfen tüm alanları doldurun!"); return; }
+    setYuk(true);
+    setTimeout(() => {
+      const tumKullanicilar = [superAdmin, ...kullanicilar];
+      const bulunan = tumKullanicilar.find(u => u.kullaniciAdi === kAdi && u.sifre === sifre);
+      if (bulunan) { onGiris(bulunan.kullaniciAdi, bulunan.yetki); }
+      else { setHata("Hatalı Kullanıcı Adı veya Şifre!"); setYuk(false); }
+    }, 600);
+  };
+
+  return (
+    <div style={{ fontFamily:"'Outfit',sans-serif", background:"#0f1117", minHeight:"100vh",
+      display:"flex", alignItems:"center", justifyContent:"center", position:"relative", overflow:"hidden" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+      <div style={{ position:"absolute", width:500, height:500, borderRadius:"50%", background:"radial-gradient(circle,rgba(108,99,255,.12) 0%,transparent 70%)", top:-100, left:-100, pointerEvents:"none" }}/>
+      <div style={{ position:"absolute", width:400, height:400, borderRadius:"50%", background:"radial-gradient(circle,rgba(58,134,255,.1) 0%,transparent 70%)", bottom:-80, right:-80, pointerEvents:"none" }}/>
+
+      <div style={{ background:"#1a1d2e", borderRadius:24, padding:"44px 40px", width:400,
+        border:"1px solid #2a2d3e", boxShadow:"0 30px 80px rgba(0,0,0,.5)", animation:"fadeUp .5s ease" }}>
+        <div style={{ textAlign:"center", marginBottom:32 }}>
+          <div style={{ width:64, height:64, borderRadius:18, margin:"0 auto 14px",
+            background:"linear-gradient(135deg,#6c63ff,#3a86ff)", display:"flex", alignItems:"center",
+            justifyContent:"center", fontSize:30, boxShadow:"0 8px 30px rgba(108,99,255,.4)" }}>🖥️</div>
+          <div style={{ fontSize:24, fontWeight:800, background:"linear-gradient(135deg,#a78bfa,#60a5fa)",
+            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Yüksek Stok</div>
+          <div style={{ fontSize:12, color:"#64748b", marginTop:4, letterSpacing:1.5 }}>STOK TAKİP SİSTEMİ</div>
+        </div>
+        <div style={{ fontSize:13, color:"#94a3b8", marginBottom:24, textAlign:"center" }}>Devam etmek için giriş yapın</div>
+
+        <div style={{ marginBottom:14 }}>
+          <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:7, textTransform:"uppercase", letterSpacing:1 }}>Kullanıcı Adı</label>
+          <div style={{ position:"relative" }}>
+            <span style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>👤</span>
+            <input value={kAdi} onChange={e=>{setKAdi(e.target.value);setHata("");}}
+              onKeyDown={e=>e.key==="Enter"&&girisYap()} placeholder="Kullanıcı adınızı girin"
+              style={inp({ paddingLeft:38, border:`1px solid ${hata?"#ff6b6b44":"#2a2d3e"}` })}/>
+          </div>
+        </div>
+
+        <div style={{ marginBottom:22 }}>
+          <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:7, textTransform:"uppercase", letterSpacing:1 }}>Şifre</label>
+          <div style={{ position:"relative" }}>
+            <span style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", fontSize:15 }}>🔒</span>
+            <input type={sifreGoster?"text":"password"} value={sifre}
+              onChange={e=>{setSifre(e.target.value);setHata("");}}
+              onKeyDown={e=>e.key==="Enter"&&girisYap()} placeholder="Şifrenizi girin"
+              style={inp({ paddingLeft:38, paddingRight:40, border:`1px solid ${hata?"#ff6b6b44":"#2a2d3e"}` })}/>
+            <button onClick={()=>setSG(p=>!p)} style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", fontSize:15, opacity:.5 }}>
+              {sifreGoster?"🙈":"👁️"}
+            </button>
+          </div>
+        </div>
+
+        {hata && <div style={{ background:"rgba(255,107,107,.1)", border:"1px solid rgba(255,107,107,.3)", borderRadius:10, padding:"9px 14px", marginBottom:16, fontSize:13, color:"#ff6b6b" }}>⚠️ {hata}</div>}
+
+        <button onClick={girisYap} disabled={yukleniyor} style={{
+          width:"100%", padding:13, borderRadius:12, border:"none",
+          background: yukleniyor?"#2a2d3e":"linear-gradient(135deg,#6c63ff,#3a86ff)",
+          color: yukleniyor?"#64748b":"#fff", fontWeight:700, fontSize:15,
+          cursor: yukleniyor?"not-allowed":"pointer", fontFamily:"'Outfit',sans-serif",
+          boxShadow: yukleniyor?"none":"0 4px 20px rgba(108,99,255,.4)", transition:"all .2s" }}>
+          {yukleniyor ? "⏳ Kontrol ediliyor..." : "→ Giriş Yap"}
+        </button>
+        <div style={{ textAlign:"center", marginTop:20, fontSize:12, color:"#334155" }}>🔐 Yetkisiz erişim yasaktır</div>
+      </div>
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}} input::placeholder{color:#3d4a5c}`}</style>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+//  ADMİN PANELİ MODAL
+// ════════════════════════════════════════════════════════════
+function AdminPaneli({ onKapat, kullanicilar, setKullanicilar, superAdmin, setSuperAdmin }) {
+  const [yeniForm, setYeniForm] = useState({ kullaniciAdi:"", sifre:"", yetki:"Kullanıcı" });
+  const [sifreForm, setSifreForm] = useState({ eski:"", yeni:"", tekrar:"" });
+  const [hata, setHata]         = useState("");
+  const [toast, setToast]       = useState(null);
+  const [silinecek, setSilinecek] = useState(null);
+
+  const showToast = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
+
+  const kullaniciEkle = async () => {
+    if (!yeniForm.kullaniciAdi || !yeniForm.sifre) { setHata("Kullanıcı adı ve şifre zorunlu!"); return; }
+    const hepsi = [superAdmin, ...kullanicilar];
+    if (hepsi.find(u => u.kullaniciAdi === yeniForm.kullaniciAdi)) { setHata("Bu kullanıcı adı zaten mevcut!"); return; }
+    try {
+      const [eklenen] = await dbInsert("users", toUser(yeniForm));
+      setKullanicilar(prev => [...prev, fromUser(eklenen)]);
+      setYeniForm({ kullaniciAdi:"", sifre:"", yetki:"Kullanıcı" });
+      setHata("");
+      showToast("Kullanıcı eklendi ✓");
+    } catch {
+      setHata("Kullanıcı eklenemedi!");
+    }
+  };
+
+  const kullaniciSil = async (id) => {
+    try { await dbDelete("users", id); } catch {}
+    setKullanicilar(prev => prev.filter(u => u.id !== id));
+    setSilinecek(null);
+    showToast("Kullanıcı silindi", "info");
+  };
+
+  const sifreDegistir = async () => {
+    if (!sifreForm.eski || !sifreForm.yeni || !sifreForm.tekrar) { setHata("Şifre değiştirmek için tüm alanları doldurun!"); return; }
+    if (sifreForm.eski !== superAdmin.sifre) { setHata("Mevcut şifre hatalı!"); return; }
+    if (sifreForm.yeni.length < 3) { setHata("Yeni şifre en az 3 karakter olmalı!"); return; }
+    if (sifreForm.yeni !== sifreForm.tekrar) { setHata("Yeni şifreler eşleşmiyor!"); return; }
+    try {
+      const [guncel] = await dbUpdate("users", superAdmin.id, { password:sifreForm.yeni });
+      setSuperAdmin(fromUser(guncel));
+      setSifreForm({ eski:"", yeni:"", tekrar:"" });
+      setHata("");
+      showToast("Yönetici şifresi güncellendi ✓");
+    } catch {
+      setHata("Şifre güncellenemedi!");
+    }
+  };
+
+  const YETKI_RENK = { "Yönetici": { bg:"rgba(108,99,255,.15)", color:"#a78bfa" }, "Kullanıcı": { bg:"rgba(46,213,115,.12)", color:"#2ed573" } };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.75)", backdropFilter:"blur(6px)",
+      display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000 }}>
+
+      {toast && <div style={{ position:"fixed", top:20, right:20, zIndex:9999, padding:"12px 20px",
+        borderRadius:12, fontWeight:600, fontSize:14,
+        background: toast.type==="error"?"#ff4757":toast.type==="info"?"#3a86ff":"#2ed573",
+        color:"#fff", boxShadow:"0 8px 32px rgba(0,0,0,.4)" }}>{toast.msg}</div>}
+
+      {/* Silme onay modalı */}
+      {silinecek && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:3000 }}>
+          <div style={{ background:"#1a1d2e", borderRadius:20, padding:28, width:360, border:"1px solid #2a2d3e", textAlign:"center" }}>
+            <div style={{ fontSize:36, marginBottom:12 }}>⚠️</div>
+            <div style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>Kullanıcıyı sil?</div>
+            <div style={{ fontSize:13, color:"#64748b", marginBottom:24 }}>
+              <span style={{ color:"#a78bfa", fontWeight:600 }}>{silinecek.kullaniciAdi}</span> adlı kullanıcı silinecek. Bu işlem geri alınamaz.
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setSilinecek(null)} style={{ flex:1, padding:10, borderRadius:10, border:"1px solid #2a2d3e", background:"transparent", color:"#64748b", fontWeight:600, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>İptal</button>
+              <button onClick={()=>kullaniciSil(silinecek.id)} style={{ flex:1, padding:10, borderRadius:10, border:"none", background:"linear-gradient(135deg,#ff4757,#ff6b6b)", color:"#fff", fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>Sil</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ background:"#1a1d2e", borderRadius:24, width:580, maxHeight:"85vh", overflow:"auto",
+        border:"1px solid #2a2d3e", boxShadow:"0 30px 80px rgba(0,0,0,.6)", display:"flex", flexDirection:"column" }}>
+
+        {/* Başlık */}
+        <div style={{ padding:"22px 28px", borderBottom:"1px solid #2a2d3e", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, background:"#1a1d2e", zIndex:1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:40, height:40, borderRadius:12, background:"linear-gradient(135deg,#f59e0b,#ef4444)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>⚙️</div>
+            <div>
+              <div style={{ fontSize:17, fontWeight:800 }}>Yönetici Paneli</div>
+              <div style={{ fontSize:11, color:"#64748b", letterSpacing:.8 }}>KULLANICI YÖNETİMİ</div>
+            </div>
+          </div>
+          <button onClick={onKapat} style={{ background:"rgba(255,107,107,.1)", border:"1px solid rgba(255,107,107,.2)", color:"#ff6b6b", width:34, height:34, borderRadius:10, cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+        </div>
+
+        <div style={{ padding:28 }}>
+          {/* Yeni Kullanıcı Ekle */}
+          <div style={{ background:"#13162a", borderRadius:16, padding:20, marginBottom:24, border:"1px solid #2a2d3e" }}>
+            <div style={{ fontSize:14, fontWeight:700, marginBottom:16, display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ background:"rgba(46,213,115,.15)", color:"#2ed573", padding:"3px 10px", borderRadius:20, fontSize:12 }}>＋</span> Yeni Kullanıcı Ekle
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>Kullanıcı Adı</label>
+                <input value={yeniForm.kullaniciAdi} onChange={e=>setYeniForm(p=>({...p,kullaniciAdi:e.target.value}))}
+                  placeholder="Örn: Ahmet" style={inp()} onFocus={()=>setHata("")}/>
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>Şifre</label>
+                <input value={yeniForm.sifre} onChange={e=>setYeniForm(p=>({...p,sifre:e.target.value}))}
+                  placeholder="Şifre belirleyin" style={inp()} onFocus={()=>setHata("")}/>
+              </div>
+            </div>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>Yetki Türü</label>
+              <select value={yeniForm.yetki} onChange={e=>setYeniForm(p=>({...p,yetki:e.target.value}))} style={inp()}>
+                <option>Kullanıcı</option>
+                <option>Yönetici</option>
+              </select>
+            </div>
+            {hata && <div style={{ background:"rgba(255,107,107,.1)", border:"1px solid rgba(255,107,107,.3)", borderRadius:8, padding:"8px 12px", marginBottom:12, fontSize:12, color:"#ff6b6b" }}>⚠️ {hata}</div>}
+            <button onClick={kullaniciEkle} style={{
+              width:"100%", padding:11, borderRadius:10, border:"none",
+              background:"linear-gradient(135deg,#2ed573,#00b894)", color:"#fff",
+              fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>
+              ＋ Kullanıcıyı Ekle
+            </button>
+          </div>
+
+          {/* Yönetici Şifresi */}
+          <div style={{ background:"#13162a", borderRadius:16, padding:20, marginBottom:24, border:"1px solid rgba(108,99,255,.28)" }}>
+            <div style={{ fontSize:14, fontWeight:700, marginBottom:16, display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ background:"rgba(108,99,255,.15)", color:"#a78bfa", padding:"3px 10px", borderRadius:20, fontSize:12 }}>🔑</span> Yönetici Şifresini Değiştir
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, marginBottom:14 }}>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>Mevcut Şifre</label>
+                <input type="password" value={sifreForm.eski} onChange={e=>{setSifreForm(p=>({...p,eski:e.target.value}));setHata("");}} placeholder="Mevcut" style={inp()}/>
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>Yeni Şifre</label>
+                <input type="password" value={sifreForm.yeni} onChange={e=>{setSifreForm(p=>({...p,yeni:e.target.value}));setHata("");}} placeholder="Yeni" style={inp()}/>
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"#64748b", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>Tekrar</label>
+                <input type="password" value={sifreForm.tekrar} onChange={e=>{setSifreForm(p=>({...p,tekrar:e.target.value}));setHata("");}} placeholder="Tekrar" style={inp()}/>
+              </div>
+            </div>
+            <button onClick={sifreDegistir} style={{
+              width:"100%", padding:11, borderRadius:10, border:"none",
+              background:"linear-gradient(135deg,#6c63ff,#3a86ff)", color:"#fff",
+              fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"'Outfit',sans-serif" }}>
+              ✓ Şifreyi Güncelle
+            </button>
+          </div>
+
+          {/* Mevcut Kullanıcılar */}
+          <div style={{ fontSize:13, fontWeight:700, color:"#64748b", marginBottom:14, textTransform:"uppercase", letterSpacing:1 }}>
+            Mevcut Kullanıcılar ({1 + kullanicilar.length})
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {/* Süper Admin — silinemez */}
+            <div style={{ background:"#13162a", borderRadius:14, padding:"14px 18px", border:"1px solid rgba(108,99,255,.3)",
+              display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:"linear-gradient(135deg,#6c63ff,#3a86ff)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>👑</div>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{superAdmin.kullaniciAdi}</div>
+                  <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>Şifre: {"•".repeat(superAdmin.sifre.length)}</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ background:"rgba(108,99,255,.15)", color:"#a78bfa", padding:"4px 12px", borderRadius:20, fontSize:12, fontWeight:600 }}>Süper Admin</span>
+                <span style={{ fontSize:11, color:"#334155", background:"#1a1d2e", padding:"4px 10px", borderRadius:8, border:"1px solid #2a2d3e" }}>🔒 Silinemez</span>
+              </div>
+            </div>
+
+            {kullanicilar.length === 0 && (
+              <div style={{ textAlign:"center", padding:"24px", color:"#334155", fontSize:13 }}>Henüz ek kullanıcı eklenmedi</div>
+            )}
+
+            {kullanicilar.map(u => {
+              const rk = YETKI_RENK[u.yetki] || YETKI_RENK["Kullanıcı"];
+              return (
+                <div key={u.id} style={{ background:"#13162a", borderRadius:14, padding:"14px 18px", border:"1px solid #2a2d3e",
+                  display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ width:36, height:36, borderRadius:10, background:"rgba(58,134,255,.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>👤</div>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:14 }}>{u.kullaniciAdi}</div>
+                      <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>Şifre: {"•".repeat(u.sifre.length)}</div>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <span style={{ background:rk.bg, color:rk.color, padding:"4px 12px", borderRadius:20, fontSize:12, fontWeight:600 }}>{u.yetki}</span>
+                    <button onClick={()=>setSilinecek(u)} style={{
+                      background:"rgba(255,107,107,.1)", color:"#ff6b6b", border:"1px solid rgba(255,107,107,.25)",
+                      padding:"6px 12px", borderRadius:8, cursor:"pointer", fontFamily:"'Outfit',sans-serif",
+                      fontSize:12, fontWeight:600 }}>🗑️ Sil</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+//  ANA UYGULAMA
+// ════════════════════════════════════════════════════════════
+function App() {
+  const [oturum, setOturum]         = useState(null);
+  const [kullanicilar, setKullanicilar] = useState([]);
+  const [superAdmin, setSuperAdmin] = useState(SUPER_ADMIN);
+
+  useEffect(() => {
+    let aktif = true;
+    dbSelect("users", "?select=*&order=created_at.asc")
+      .then(rows => {
+        if (!aktif) return;
+        const liste = rows.map(fromUser);
+        const anaAdmin = liste.find(u => u.kullaniciAdi === "Yusuf") || SUPER_ADMIN;
+        setSuperAdmin(anaAdmin);
+        setKullanicilar(liste.filter(u => u.kullaniciAdi !== "Yusuf"));
+      })
+      .catch(() => {});
+    return () => { aktif = false; };
+  }, []);
+
+  if (!oturum) return <LoginEkrani onGiris={(k,y)=>setOturum({k,y})} kullanicilar={kullanicilar} superAdmin={superAdmin}/>;
+  return <StokTakipIc kullanici={oturum.k} yetki={oturum.y}
+    onCikis={()=>setOturum(null)} kullanicilar={kullanicilar} setKullanicilar={setKullanicilar} superAdmin={superAdmin} setSuperAdmin={setSuperAdmin}/>;
+}
+
+// ════════════════════════════════════════════════════════════
+//  STOK TAKİP PANELİ
+// ════════════════════════════════════════════════════════════
+function StokTakipIc({ kullanici, yetki, onCikis, kullanicilar, setKullanicilar, superAdmin, setSuperAdmin }) {
+  const [stok, setStok]               = useState([]);
+  const [satisGecmisi, setSatisGecmisi] = useState([]);
+  const [yeniParcaModal, setYeniParcaModal] = useState(false);
+  const [satisModal, setSatisModal]   = useState(null);
+  const [satisDetayModal, setSatisDetayModal] = useState(null);
+  const [duzenleModal, setDuzenleModal] = useState(null);
+  const [adminModal, setAdminModal]   = useState(false);
+  const [aktifSekme, setAktifSekme]   = useState("stok");
+  const [form, setForm]               = useState({ ad:"", cins:"İşlemci", marka:"", seriNo:"", adet:"", alisFiyati:"" });
+  const [duzenleForm, setDuzenleForm] = useState({ ad:"", cins:"İşlemci", marka:"", seriNo:"", adet:"", alisFiyati:"" });
+  const [satisForm, setSatisForm]     = useState({ adet:"", fiyat:"", musteri:"" });
+  const [filtre, setFiltre]           = useState("");
+  const [toast, setToast]             = useState(null);
+
+  const showToast = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
+
+  const stokYukle = async () => {
+    const rows = await dbSelect("products", "?select=*&order=created_at.asc");
+    if (rows.length === 0) {
+      const eklenenler = await dbInsert("products", initialStok.map(toProduct));
+      setStok(eklenenler.map(fromProduct));
+      return;
+    }
+    setStok(rows.map(fromProduct));
+  };
+
+  const satislariYukle = async () => {
+    const rows = await dbSelect("sales", "?select=*&order=sold_at.desc");
+    setSatisGecmisi(rows.map(fromSale));
+  };
+
+  useEffect(() => {
+    stokYukle().catch(()=>showToast("Stok verileri alınamadı!", "error"));
+    satislariYukle().catch(()=>showToast("Satış geçmişi alınamadı!", "error"));
+  }, []);
+
+  const toplamCesit = stok.length;
+  const toplamAdet  = stok.reduce((t,p)=>t+p.adet,0);
+  const kategoriSayisi = new Set(stok.map(p=>p.cins)).size;
+  const dusukStok   = stok.filter(p=>p.adet<=1).length;
+  const toplamGelir = satisGecmisi.reduce((t,s)=>t+(s.fiyat*s.adet),0);
+  const toplamGider = satisGecmisi.reduce((t,s)=>t+((s.alisFiyati||0)*s.adet),0);
+  const toplamKar = toplamGelir - toplamGider;
+
+  const parcaEkle = async () => {
+    if (!form.ad||!form.marka||!form.adet||!form.alisFiyati) { showToast("Tüm alanları doldurun!","error"); return; }
+    try {
+      const yeni = { ...form, adet:parseInt(form.adet), alisFiyati:parseFloat(form.alisFiyati) };
+      const [eklenen] = await dbInsert("products", toProduct(yeni));
+      setStok(prev=>[...prev, fromProduct(eklenen)]);
+      setForm({ ad:"", cins:"İşlemci", marka:"", seriNo:"", adet:"", alisFiyati:"" });
+      setYeniParcaModal(false); showToast("Parça eklendi ✓");
+    } catch {
+      showToast("Parça eklenemedi!", "error");
+    }
+  };
+
+  const parcaSil = async (id) => { try { await dbDelete("products", id); } catch {} setStok(prev=>prev.filter(p=>p.id!==id)); showToast("Parça silindi","info"); };
+
+  const duzenleAc = (parca) => {
+    setDuzenleModal(parca);
+    setDuzenleForm({
+      ad: parca.ad,
+      cins: parca.cins,
+      marka: parca.marka,
+      seriNo: parca.seriNo || "",
+      adet: String(parca.adet),
+      alisFiyati: String(parca.alisFiyati)
+    });
+  };
+
+  const parcaGuncelle = async () => {
+    if (!duzenleForm.ad || !duzenleForm.marka || duzenleForm.adet === "" || duzenleForm.alisFiyati === "") { showToast("Tüm alanları doldurun!","error"); return; }
+    const adet = parseInt(duzenleForm.adet);
+    const alisFiyati = parseFloat(duzenleForm.alisFiyati);
+    if (Number.isNaN(adet) || adet < 0 || Number.isNaN(alisFiyati) || alisFiyati < 0) { showToast("Adet ve fiyat geçerli olmalı!","error"); return; }
+    try {
+      const guncelParca = { ...duzenleForm, adet, alisFiyati };
+      const [guncel] = await dbUpdate("products", duzenleModal.id, toProduct(guncelParca));
+      setStok(prev=>prev.map(p=>p.id===duzenleModal.id?fromProduct(guncel):p));
+      setDuzenleModal(null);
+      showToast("Parça güncellendi ✓");
+    } catch {
+      showToast("Parça güncellenemedi!", "error");
+    }
+  };
+
+  const satisOnayla = async () => {
+    if (!satisForm.adet||!satisForm.fiyat||!satisForm.musteri) { showToast("Tüm satış bilgilerini girin!","error"); return; }
+    const adet = parseInt(satisForm.adet);
+    const parca = stok.find(p=>p.id===satisModal.id);
+    if (adet>parca.adet) { showToast("Yeterli stok yok!","error"); return; }
+    const yeniAdet = parca.adet - adet;
+    try {
+      const [guncelUrun] = await dbUpdate("products", satisModal.id, { quantity:yeniAdet });
+      const [satis] = await dbInsert("sales", {
+        product_id:parca.id,
+        product_name:parca.ad,
+        type:parca.cins,
+        brand:parca.marka,
+        serial_no:parca.seriNo || null,
+        quantity:adet,
+        sale_price:parseFloat(satisForm.fiyat),
+        purchase_price:parca.alisFiyati,
+        customer:satisForm.musteri,
+        sold_by:kullanici
+      });
+      setStok(prev=>prev.map(p=>p.id===satisModal.id?fromProduct(guncelUrun):p));
+      setSatisGecmisi(prev=>[fromSale(satis),...prev]);
+      setSatisModal(null); setSatisForm({adet:"",fiyat:"",musteri:""}); showToast(`${adet} adet satış tamamlandı ✓`);
+    } catch {
+      showToast("Satış kaydedilemedi!", "error");
+    }
+  };
+
+  const satisYazdir = (satis) => {
+    const gelir = satis.fiyat * satis.adet;
+    const gider = (satis.alisFiyati || 0) * satis.adet;
+    const kar = gelir - gider;
+    const belge = window.open("", "_blank", "width=760,height=900");
+    if (!belge) { showToast("Yazdırma penceresi açılamadı!", "error"); return; }
+    belge.document.write(`
+      <!doctype html>
+      <html lang="tr">
+      <head>
+        <meta charset="UTF-8" />
+        <title>Satış Formu - ${satis.parcaAd}</title>
+        <style>
+          body{font-family:Arial,sans-serif;background:#f4f6fb;color:#111827;padding:28px}
+          .form{max-width:720px;margin:0 auto;background:#fff;border:1px solid #d7dce8;border-radius:14px;padding:28px}
+          .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111827;padding-bottom:16px;margin-bottom:22px}
+          h1{font-size:24px;margin:0}.sub{font-size:12px;color:#64748b;margin-top:6px;letter-spacing:1px}
+          .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{border:1px solid #e2e8f0;border-radius:10px;padding:12px}
+          .label{font-size:11px;color:#64748b;text-transform:uppercase;font-weight:700;margin-bottom:6px}.value{font-size:15px;font-weight:700}
+          .total{margin-top:18px;padding:16px;border-radius:12px;background:#f8fafc;border:1px solid #e2e8f0}
+          .money{font-size:20px;font-weight:800}.green{color:#16a34a}.red{color:#dc2626}.purple{color:#7c3aed}
+          @media print{body{background:#fff;padding:0}.form{border:0;box-shadow:none}.no-print{display:none}}
+        </style>
+      </head>
+      <body>
+        <div class="form">
+          <div class="header"><div><h1>Satış Formu</h1><div class="sub">YÜKSEK STOK TAKİP SİSTEMİ</div></div><div>${satis.tarih}</div></div>
+          <div class="grid">
+            <div class="field"><div class="label">Ürün</div><div class="value">${satis.parcaAd}</div></div>
+            <div class="field"><div class="label">Seri No</div><div class="value">${satis.seriNo || "-"}</div></div>
+            <div class="field"><div class="label">Cinsi</div><div class="value">${satis.cins}</div></div>
+            <div class="field"><div class="label">Marka</div><div class="value">${satis.marka}</div></div>
+            <div class="field"><div class="label">Müşteri</div><div class="value">${satis.musteri}</div></div>
+            <div class="field"><div class="label">İşlemi Yapan</div><div class="value">${satis.satanKullanici || "-"}</div></div>
+            <div class="field"><div class="label">Adet</div><div class="value">${satis.adet}</div></div>
+            <div class="field"><div class="label">Birim Satış</div><div class="value">${satis.fiyat.toLocaleString("tr-TR")} ₺</div></div>
+          </div>
+          <div class="total">
+            <div class="grid">
+              <div><div class="label">Toplam Satış</div><div class="money green">${gelir.toLocaleString("tr-TR")} ₺</div></div>
+              <div><div class="label">Toplam Maliyet</div><div class="money red">${gider.toLocaleString("tr-TR")} ₺</div></div>
+              <div><div class="label">Kar</div><div class="money purple">${kar.toLocaleString("tr-TR")} ₺</div></div>
+            </div>
+          </div>
+          <button class="no-print" onclick="window.print()" style="margin-top:20px;padding:12px 18px;border:0;border-radius:10px;background:#111827;color:#fff;font-weight:700;cursor:pointer">Yazdır</button>
+        </div>
+      </body>
+      </html>
+    `);
+    belge.document.close();
+    belge.focus();
+  };
+
+  const filtrelenmis = stok.filter(p=>
+    p.ad.toLowerCase().includes(filtre.toLowerCase())||
+    p.marka.toLowerCase().includes(filtre.toLowerCase())||
+    p.cins.toLowerCase().includes(filtre.toLowerCase())
+  );
+
+  return (
+    <div style={{ fontFamily:"'Outfit',sans-serif", background:"#0f1117", minHeight:"100vh", color:"#e2e8f0" }}>
+      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+
+      {/* Toast */}
+      {toast && <div style={{ position:"fixed", top:20, right:20, zIndex:9999, padding:"12px 20px",
+        borderRadius:12, fontWeight:600, fontSize:14,
+        background:toast.type==="error"?"#ff4757":toast.type==="info"?"#3a86ff":"#2ed573",
+        color:"#fff", boxShadow:"0 8px 32px rgba(0,0,0,.4)", animation:"slideIn .3s ease" }}>{toast.msg}</div>}
+
+      {/* Yönetici Paneli */}
+      {adminModal && <AdminPaneli onKapat={()=>setAdminModal(false)} kullanicilar={kullanicilar} setKullanicilar={setKullanicilar} superAdmin={superAdmin} setSuperAdmin={setSuperAdmin}/>}
+
+      {/* Header */}
+      <div style={{ background:"linear-gradient(135deg,#1a1d2e,#16192a)", borderBottom:"1px solid #2a2d3e",
+        padding:"18px 28px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ width:42, height:42, borderRadius:12, background:"linear-gradient(135deg,#6c63ff,#3a86ff)",
+            display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🖥️</div>
+          <div>
+            <div style={{ fontSize:20, fontWeight:800, letterSpacing:"-.5px", background:"linear-gradient(135deg,#a78bfa,#60a5fa)",
+              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Yüksek Stok</div>
+            <div style={{ fontSize:11, color:"#64748b", marginTop:-2, letterSpacing:1 }}>STOK TAKİP SİSTEMİ</div>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          {/* Kullanıcı badge */}
+          <span style={{ background:"rgba(108,99,255,.15)", color:"#a78bfa", padding:"6px 14px",
+            borderRadius:20, fontWeight:600, fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
+            {yetki==="Yönetici"?"👑":"👤"} {kullanici} · {yetki}
+          </span>
+
+          {/* Yönetici Paneli butonu — sadece Yönetici görür */}
+          {yetki === "Yönetici" && (
+            <button onClick={()=>setAdminModal(true)} style={{
+              background:"linear-gradient(135deg,#f59e0b,#ef4444)", color:"#fff", border:"none",
+              padding:"10px 18px", borderRadius:12, fontWeight:700, fontSize:13,
+              cursor:"pointer", fontFamily:"'Outfit',sans-serif", display:"flex", alignItems:"center", gap:7,
+              boxShadow:"0 4px 16px rgba(245,158,11,.35)" }}>
+              ⚙️ Yönetici Paneli
+            </button>
+          )}
+
+          <button onClick={()=>setYeniParcaModal(true)} style={{
+            background:"linear-gradient(135deg,#6c63ff,#3a86ff)", color:"#fff", border:"none",
+            padding:"10px 20px", borderRadius:12, fontWeight:700, fontSize:14,
+            cursor:"pointer", fontFamily:"'Outfit',sans-serif", display:"flex", alignItems:"center", gap:7,
+            boxShadow:"0 4px 20px rgba(108,99,255,.4)" }}>
+            ＋ Yeni Parça
+          </button>
+
+          <button onClick={onCikis} style={{
+            background:"rgba(255,107,107,.1)", color:"#ff6b6b", border:"1px solid rgba(255,107,107,.25)",
+            padding:"10px 16px", borderRadius:12, fontWeight:700, fontSize:13,
+            cursor:"pointer", fontFamily:"'Outfit',sans-serif", display:"flex", alignItems:"center", gap:6 }}>
+            ⏏ Çıkış
+          </button>
+        </div>
+      </div>
+
+      <div style={{ padding:"24px 28px" }}>
+        {/* Özet Kartlar */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:24 }}>
+          {[
+            { label:"Toplam",  value:toplamCesit,    icon:"📦", color:"#6c63ff" },
+            { label:"Toplam Adet",   value:toplamAdet,     icon:"🔢", color:"#3a86ff" },
+            { label:"Kategori",      value:kategoriSayisi, icon:"🗂️", color:"#2ed573" },
+            { label:"Yüksek Stok",    value:dusukStok,      icon:"⚠️", color: dusukStok>0?"#ff6b6b":"#2ed573" },
+          ].map((k,i)=>(
+            <div key={i} style={{ background:"#1a1d2e", borderRadius:16, padding:"18px 20px",
+              border:`1px solid ${k.color}30`, position:"relative", overflow:"hidden" }}>
+              <div style={{ position:"absolute", top:12, right:14, fontSize:28, opacity:.15 }}>{k.icon}</div>
+              <div style={{ fontSize:11, color:"#64748b", fontWeight:600, letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>{k.label}</div>
+              <div style={{ fontSize:36, fontWeight:800, color:k.color, lineHeight:1 }}>{k.value}</div>
+              {k.label==="Yüksek Stok"&&dusukStok>0&&<div style={{ fontSize:11, color:"#ff6b6b", marginTop:6, fontWeight:500 }}>Dikkat: Stok azlığı!</div>}
+            </div>
+          ))}
+        </div>
+
+        {/* Sekmeler */}
+        <div style={{ display:"flex", gap:4, marginBottom:20, background:"#1a1d2e", borderRadius:12, padding:4, width:"fit-content", border:"1px solid #2a2d3e" }}>
+          {[{key:"stok",label:"📋 Stok Listesi"},{key:"gecmis",label:"📊 Satış Geçmişi"},{key:"gelir",label:"💰 Gelir-Gider"}].map(s=>(
+            <button key={s.key} onClick={()=>setAktifSekme(s.key)} style={{
+              padding:"8px 20px", borderRadius:9, border:"none", cursor:"pointer", fontWeight:600, fontSize:13,
+              fontFamily:"'Outfit',sans-serif",
+              background: aktifSekme===s.key?"linear-gradient(135deg,#6c63ff,#3a86ff)":"transparent",
+              color: aktifSekme===s.key?"#fff":"#64748b" }}>{s.label}</button>
+          ))}
+        </div>
+
+        {aktifSekme==="stok" && <>
+          <div style={{ marginBottom:16, position:"relative" }}>
+            <span style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:16 }}>🔍</span>
+            <input value={filtre} onChange={e=>setFiltre(e.target.value)} placeholder="Parça adı, marka veya kategori ara..."
+              style={inp({ paddingLeft:42, borderRadius:12, padding:"10px 16px 10px 42px" })}/>
+          </div>
+
+          <div style={{ background:"#1a1d2e", borderRadius:16, border:"1px solid #2a2d3e", overflow:"hidden" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead>
+                <tr style={{ background:"#13162a" }}>
+                  {["Parça Adı","Cinsi","Marka","Seri No","Adet","Okuyacak","İşlemler"].map((h,i)=>(
+                    <th key={i} style={{ padding:"14px 16px", textAlign:"left", fontSize:11, fontWeight:700,
+                      color:"#64748b", letterSpacing:1, textTransform:"uppercase", borderBottom:"1px solid #2a2d3e" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtrelenmis.length===0
+                  ? <tr><td colSpan={7} style={{ textAlign:"center", padding:40, color:"#64748b" }}>Parça bulunamadı</td></tr>
+                  : filtrelenmis.map(p=>{
+                    const rk = CINS_RENKLERI[p.cins]||{bg:"rgba(255,255,255,.05)",text:"#94a3b8",border:"#334155"};
+                    return (
+                      <tr key={p.id} style={{ borderBottom:"1px solid #2a2d3e" }}
+                        onMouseEnter={e=>e.currentTarget.style.background="#1e2035"}
+                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                        <td style={{ padding:"13px 16px", fontWeight:600, fontSize:14 }}>{p.ad}</td>
+                        <td style={{ padding:"13px 16px" }}>
+                          <span style={{ background:rk.bg, color:rk.text, border:`1px solid ${rk.border}`, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{p.cins}</span>
+                        </td>
+                        <td style={{ padding:"13px 16px", color:"#94a3b8", fontSize:14 }}>{p.marka}</td>
+                        <td style={{ padding:"13px 16px", color:"#64748b", fontSize:12, fontFamily:"monospace" }}>{p.seriNo||"—"}</td>
+                        <td style={{ padding:"13px 16px" }}>
+                          <span style={{ color:p.adet<=1?"#ff6b6b":p.adet<=3?"#ffa94d":"#2ed573", fontWeight:700, fontSize:15 }}>{p.adet}</span>
+                        </td>
+                        <td style={{ padding:"13px 16px", color:"#a78bfa", fontWeight:600 }}>{p.alisFiyati.toLocaleString("tr-TR")} ₺</td>
+                        <td style={{ padding:"13px 16px" }}>
+                          <div style={{ display:"flex", gap:8 }}>
+                            <button onClick={()=>{setSatisModal(p);setSatisForm({adet:"",fiyat:"",musteri:""})} } style={{
+                              background:"rgba(46,213,115,.12)", color:"#2ed573", border:"1px solid rgba(46,213,115,.3)",
+                              padding:"6px 12px", borderRadius:8, cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"'Outfit',sans-serif" }}>🛒 Sat</button>
+                            <button onClick={()=>duzenleAc(p)} style={{
+                              background:"rgba(58,134,255,.12)", color:"#60a5fa", border:"1px solid rgba(58,134,255,.3)",
+                              padding:"6px 12px", borderRadius:8, cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"'Outfit',sans-serif" }}>✏️ Düzenle</button>
+                            <button onClick={()=>parcaSil(p.id)} style={{
+                              background:"rgba(255,107,107,.12)", color:"#ff6b6b", border:"1px solid rgba(255,107,107,.3)",
+                              padding:"6px 10px", borderRadius:8, cursor:"pointer", fontSize:13, fontFamily:"'Outfit',sans-serif" }}>🗑️</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </>}
+
+        {aktifSekme==="gecmis" && (
+          <div style={{ background:"#1a1d2e", borderRadius:16, border:"1px solid #2a2d3e", overflow:"hidden" }}>
+            {satisGecmisi.length===0
+              ? <div style={{ textAlign:"center", padding:60, color:"#64748b" }}><div style={{ fontSize:40, marginBottom:12 }}>📭</div><div>Henüz satış yapılmadı</div></div>
+              : <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                  <thead>
+                    <tr style={{ background:"#13162a" }}>
+                      {["Tarih","Ürün","Seri No","Cinsi","Adet","Satış Fiyatı","Müşteri","İşlemi Yapan"].map((h,i)=>(
+                        <th key={i} style={{ padding:"14px 16px", textAlign:"left", fontSize:11, fontWeight:700,
+                          color:"#64748b", letterSpacing:1, textTransform:"uppercase", borderBottom:"1px solid #2a2d3e" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {satisGecmisi.map(s=>{
+                      const rk=CINS_RENKLERI[s.cins]||{bg:"rgba(255,255,255,.05)",text:"#94a3b8",border:"#334155"};
+                      return (
+                        <tr key={s.id} style={{ borderBottom:"1px solid #2a2d3e" }}>
+                          <td style={{ padding:"13px 16px", color:"#64748b", fontSize:12 }}>{s.tarih}</td>
+                          <td style={{ padding:"13px 16px" }}>
+                            <button onClick={()=>setSatisDetayModal(s)} style={{ background:"transparent", border:"none", color:"#e2e8f0", fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"'Outfit',sans-serif", padding:0, textAlign:"left" }}>{s.parcaAd}</button>
+                          </td>
+                          <td style={{ padding:"13px 16px", color:"#64748b", fontSize:12, fontFamily:"monospace" }}>{s.seriNo||"—"}</td>
+                          <td style={{ padding:"13px 16px" }}>
+                            <span style={{ background:rk.bg, color:rk.text, border:`1px solid ${rk.border}`, padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:600 }}>{s.cins}</span>
+                          </td>
+                          <td style={{ padding:"13px 16px", color:"#3a86ff", fontWeight:700 }}>{s.adet} adet</td>
+                          <td style={{ padding:"13px 16px", color:"#2ed573", fontWeight:700 }}>{(s.fiyat*s.adet).toLocaleString("tr-TR")} ₺</td>
+                          <td style={{ padding:"13px 16px" }}>
+                            <span style={{ background:"rgba(108,99,255,.15)", color:"#a78bfa", padding:"4px 12px", borderRadius:20, fontSize:13, fontWeight:600 }}>👤 {s.musteri}</span>
+                          </td>
+                          <td style={{ padding:"13px 16px", color:"#64748b", fontSize:13 }}>{s.satanKullanici||"—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+            }
+          </div>
+        )}
+        {aktifSekme==="gelir" && (
+          <div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16, marginBottom:16 }}>
+              {[
+                { label:"Toplam Gelir", value:toplamGelir, color:"#2ed573", icon:"💵" },
+                { label:"Toplam Gider", value:toplamGider, color:"#ff6b6b", icon:"📉" },
+                { label:"Net Kar", value:toplamKar, color:toplamKar>=0?"#a78bfa":"#ff6b6b", icon:"📈" },
+              ].map((k,i)=>(
+                <div key={i} style={{ background:"#1a1d2e", borderRadius:16, padding:"18px 20px", border:`1px solid ${k.color}35`, position:"relative", overflow:"hidden" }}>
+                  <div style={{ position:"absolute", top:12, right:14, fontSize:28, opacity:.15 }}>{k.icon}</div>
+                  <div style={{ fontSize:11, color:"#64748b", fontWeight:700, letterSpacing:1, marginBottom:8, textTransform:"uppercase" }}>{k.label}</div>
+                  <div style={{ fontSize:28, fontWeight:800, color:k.color }}>{k.value.toLocaleString("tr-TR")} ₺</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background:"#1a1d2e", borderRadius:16, border:"1px solid #2a2d3e", overflow:"hidden" }}>
+              {satisGecmisi.length===0
+                ? <div style={{ textAlign:"center", padding:60, color:"#64748b" }}><div style={{ fontSize:40, marginBottom:12 }}>💰</div><div>Henüz gelir-gider kaydı yok</div></div>
+                : <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                    <thead>
+                      <tr style={{ background:"#13162a" }}>
+                        {["Tarih","Ürün","Adet","Gelir","Gider","Kar","Müşteri"].map((h,i)=>(
+                          <th key={i} style={{ padding:"14px 16px", textAlign:"left", fontSize:11, fontWeight:700,
+                            color:"#64748b", letterSpacing:1, textTransform:"uppercase", borderBottom:"1px solid #2a2d3e" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {satisGecmisi.map(s=>{
+                        const gelir = s.fiyat * s.adet;
+                        const gider = (s.alisFiyati || 0) * s.adet;
+                        const kar = gelir - gider;
+                        return (
+                          <tr key={s.id} style={{ borderBottom:"1px solid #2a2d3e" }}>
+                            <td style={{ padding:"13px 16px", color:"#64748b", fontSize:12 }}>{s.tarih}</td>
+                            <td style={{ padding:"13px 16px", fontWeight:600, fontSize:14 }}>{s.parcaAd}</td>
+                            <td style={{ padding:"13px 16px", color:"#3a86ff", fontWeight:700 }}>{s.adet} adet</td>
+                            <td style={{ padding:"13px 16px", color:"#2ed573", fontWeight:700 }}>{gelir.toLocaleString("tr-TR")} ₺</td>
+                            <td style={{ padding:"13px 16px", color:"#ff6b6b", fontWeight:700 }}>{gider.toLocaleString("tr-TR")} ₺</td>
+                            <td style={{ padding:"13px 16px", color:kar>=0?"#a78bfa":"#ff6b6b", fontWeight:800 }}>{kar.toLocaleString("tr-TR")} ₺</td>
+                            <td style={{ padding:"13px 16px" }}>
+                              <span style={{ background:"rgba(108,99,255,.15)", color:"#a78bfa", padding:"4px 12px", borderRadius:20, fontSize:13, fontWeight:600 }}>👤 {s.musteri}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+              }
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Satış Detay Modal */}
+      {satisDetayModal && (() => {
+        const gelir = satisDetayModal.fiyat * satisDetayModal.adet;
+        const gider = (satisDetayModal.alisFiyati || 0) * satisDetayModal.adet;
+        const kar = gelir - gider;
+        return (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", backdropFilter:"blur(4px)",
+            display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
+            <div style={{ background:"#1a1d2e", borderRadius:20, padding:28, width:560, border:"1px solid #2a2d3e", boxShadow:"0 20px 60px rgba(0,0,0,.6)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+                <div>
+                  <div style={{ fontSize:18, fontWeight:800 }}>📄 Satış Formu</div>
+                  <div style={{ fontSize:12, color:"#64748b", marginTop:4 }}>{satisDetayModal.tarih}</div>
+                </div>
+                <button onClick={()=>setSatisDetayModal(null)} style={{ background:"none", border:"none", color:"#64748b", fontSize:20, cursor:"pointer" }}>✕</button>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+                {[
+                  ["Ürün", satisDetayModal.parcaAd],
+                  ["Seri No", satisDetayModal.seriNo || "—"],
+                  ["Cinsi", satisDetayModal.cins],
+                  ["Marka", satisDetayModal.marka],
+                  ["Müşteri", satisDetayModal.musteri],
+                  ["İşlemi Yapan", satisDetayModal.satanKullanici || "—"],
+                  ["Adet", `${satisDetayModal.adet} adet`],
+                  ["Birim Satış", `${satisDetayModal.fiyat.toLocaleString("tr-TR")} ₺`],
+                ].map(([label,value])=>(
+                  <div key={label} style={{ background:"#13162a", border:"1px solid #2a2d3e", borderRadius:12, padding:"12px 14px" }}>
+                    <div style={{ fontSize:11, color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:.8, marginBottom:5 }}>{label}</div>
+                    <div style={{ fontSize:14, fontWeight:700 }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:20 }}>
+                <div style={{ background:"rgba(46,213,115,.08)", border:"1px solid rgba(46,213,115,.25)", borderRadius:12, padding:14 }}>
+                  <div style={{ fontSize:11, color:"#64748b", fontWeight:700, marginBottom:6 }}>GELİR</div>
+                  <div style={{ color:"#2ed573", fontWeight:800, fontSize:17 }}>{gelir.toLocaleString("tr-TR")} ₺</div>
+                </div>
+                <div style={{ background:"rgba(255,107,107,.08)", border:"1px solid rgba(255,107,107,.25)", borderRadius:12, padding:14 }}>
+                  <div style={{ fontSize:11, color:"#64748b", fontWeight:700, marginBottom:6 }}>GİDER</div>
+                  <div style={{ color:"#ff6b6b", fontWeight:800, fontSize:17 }}>{gider.toLocaleString("tr-TR")} ₺</div>
+                </div>
+                <div style={{ background:"rgba(108,99,255,.10)", border:"1px solid rgba(108,99,255,.25)", borderRadius:12, padding:14 }}>
+                  <div style={{ fontSize:11, color:"#64748b", fontWeight:700, marginBottom:6 }}>KAR</div>
+                  <div style={{ color:kar>=0?"#a78bfa":"#ff6b6b", fontWeight:800, fontSize:17 }}>{kar.toLocaleString("tr-TR")} ₺</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:10 }}>
+                <button onClick={()=>setSatisDetayModal(null)} style={{ flex:1, padding:11, borderRadius:10, border:"1px solid #2a2d3e", background:"transparent", color:"#64748b", fontWeight:600, cursor:"pointer", fontFamily:"'Outfit',sans-serif", fontSize:14 }}>Kapat</button>
+                <button onClick={()=>satisYazdir(satisDetayModal)} style={{ flex:2, padding:11, borderRadius:10, border:"none", background:"linear-gradient(135deg,#6c63ff,#3a86ff)", color:"#fff", fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif", fontSize:14 }}>🖨️ Yazdır</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+      {/* Yeni Parça Modal */}
+      {yeniParcaModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", backdropFilter:"blur(4px)",
+          display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
+          <div style={{ background:"#1a1d2e", borderRadius:20, padding:28, width:460, border:"1px solid #2a2d3e", boxShadow:"0 20px 60px rgba(0,0,0,.6)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+              <div style={{ fontSize:18, fontWeight:700 }}>📦 Yeni Parça Ekle</div>
+              <button onClick={()=>setYeniParcaModal(false)} style={{ background:"none", border:"none", color:"#64748b", fontSize:20, cursor:"pointer" }}>✕</button>
+            </div>
+            {[{label:"Ürün Adı",key:"ad",placeholder:"Örn: Ryzen 7 7700X"},
+              {label:"Marka",key:"marka",placeholder:"Örn: AMD, NVIDIA..."},
+              {label:"Seri No",key:"seriNo",placeholder:"Opsiyonel"}].map(f=>(
+              <div key={f.key} style={{ marginBottom:14 }}>
+                <label style={{ fontSize:12, fontWeight:600, color:"#94a3b8", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>{f.label}</label>
+                <input value={form[f.key]} onChange={e=>setForm(p=>({...p,[f.key]:e.target.value}))} placeholder={f.placeholder} style={inp()}/>
+              </div>
+            ))}
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:12, fontWeight:600, color:"#94a3b8", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>Cinsi</label>
+              <select value={form.cins} onChange={e=>setForm(p=>({...p,cins:e.target.value}))} style={inp()}>
+                {CINS_LISTESI.map(c=><option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:22 }}>
+              {[{label:"Adet",key:"adet"},{label:"Okuyacak (₺)",key:"alisFiyati"}].map(f=>(
+                <div key={f.key}>
+                  <label style={{ fontSize:12, fontWeight:600, color:"#94a3b8", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>{f.label}</label>
+                  <input type="number" value={form[f.key]} onChange={e=>setForm(p=>({...p,[f.key]:e.target.value}))} placeholder="0" style={inp()}/>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setYeniParcaModal(false)} style={{ flex:1, padding:11, borderRadius:10, border:"1px solid #2a2d3e", background:"transparent", color:"#64748b", fontWeight:600, cursor:"pointer", fontFamily:"'Outfit',sans-serif", fontSize:14 }}>İptal</button>
+              <button onClick={parcaEkle} style={{ flex:2, padding:11, borderRadius:10, border:"none", background:"linear-gradient(135deg,#6c63ff,#3a86ff)", color:"#fff", fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif", fontSize:14 }}>✓ Kaydet</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Düzenle Modal */}
+      {duzenleModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", backdropFilter:"blur(4px)",
+          display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
+          <div style={{ background:"#1a1d2e", borderRadius:20, padding:28, width:460, border:"1px solid #2a2d3e", boxShadow:"0 20px 60px rgba(0,0,0,.6)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+              <div style={{ fontSize:18, fontWeight:700 }}>✏️ Parça Düzenle</div>
+              <button onClick={()=>setDuzenleModal(null)} style={{ background:"none", border:"none", color:"#64748b", fontSize:20, cursor:"pointer" }}>✕</button>
+            </div>
+            {[{label:"Ürün Adı",key:"ad",placeholder:"Örn: Ryzen 7 7700X"},
+              {label:"Marka",key:"marka",placeholder:"Örn: AMD, NVIDIA..."},
+              {label:"Seri No",key:"seriNo",placeholder:"Opsiyonel"}].map(f=>(
+              <div key={f.key} style={{ marginBottom:14 }}>
+                <label style={{ fontSize:12, fontWeight:600, color:"#94a3b8", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>{f.label}</label>
+                <input value={duzenleForm[f.key]} onChange={e=>setDuzenleForm(p=>({...p,[f.key]:e.target.value}))} placeholder={f.placeholder} style={inp()}/>
+              </div>
+            ))}
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:12, fontWeight:600, color:"#94a3b8", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>Cinsi</label>
+              <select value={duzenleForm.cins} onChange={e=>setDuzenleForm(p=>({...p,cins:e.target.value}))} style={inp()}>
+                {CINS_LISTESI.map(c=><option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:22 }}>
+              {[{label:"Adet",key:"adet"},{label:"Okuyacak (₺)",key:"alisFiyati"}].map(f=>(
+                <div key={f.key}>
+                  <label style={{ fontSize:12, fontWeight:600, color:"#94a3b8", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>{f.label}</label>
+                  <input type="number" min="0" value={duzenleForm[f.key]} onChange={e=>setDuzenleForm(p=>({...p,[f.key]:e.target.value}))} placeholder="0" style={inp()}/>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setDuzenleModal(null)} style={{ flex:1, padding:11, borderRadius:10, border:"1px solid #2a2d3e", background:"transparent", color:"#64748b", fontWeight:600, cursor:"pointer", fontFamily:"'Outfit',sans-serif", fontSize:14 }}>İptal</button>
+              <button onClick={parcaGuncelle} style={{ flex:2, padding:11, borderRadius:10, border:"none", background:"linear-gradient(135deg,#6c63ff,#3a86ff)", color:"#fff", fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif", fontSize:14 }}>✓ Güncelle</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Satış Modal */}
+      {satisModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", backdropFilter:"blur(4px)",
+          display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000 }}>
+          <div style={{ background:"#1a1d2e", borderRadius:20, padding:28, width:400, border:"1px solid #2a2d3e", boxShadow:"0 20px 60px rgba(0,0,0,.6)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+              <div style={{ fontSize:18, fontWeight:700 }}>🛒 Satış Yap</div>
+              <button onClick={()=>setSatisModal(null)} style={{ background:"none", border:"none", color:"#64748b", fontSize:20, cursor:"pointer" }}>✕</button>
+            </div>
+            <div style={{ fontSize:13, color:"#64748b", marginBottom:20 }}>
+              <span style={{ color:"#a78bfa", fontWeight:600 }}>{satisModal.ad}</span> — Stokta: <span style={{ color:"#2ed573", fontWeight:700 }}>{satisModal.adet} adet</span>
+            </div>
+            {[{label:"Kaç Adet?",key:"adet",type:"number"},{label:"Satış Fiyatı (₺/adet)",key:"fiyat",type:"number"},{label:"Müşteri Adı",key:"musteri",type:"text"}].map(f=>(
+              <div key={f.key} style={{ marginBottom:14 }}>
+                <label style={{ fontSize:12, fontWeight:600, color:"#94a3b8", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:.8 }}>{f.label}</label>
+                <input type={f.type} value={satisForm[f.key]} onChange={e=>setSatisForm(p=>({...p,[f.key]:e.target.value}))} placeholder="0" style={inp()}/>
+              </div>
+            ))}
+            {satisForm.adet&&satisForm.fiyat&&(
+              <div style={{ background:"rgba(46,213,115,.08)", border:"1px solid rgba(46,213,115,.2)", borderRadius:10, padding:"10px 14px", marginBottom:18, fontSize:13 }}>
+                Toplam: <span style={{ color:"#2ed573", fontWeight:700, fontSize:16 }}>{(parseFloat(satisForm.fiyat||0)*parseInt(satisForm.adet||0)).toLocaleString("tr-TR")} ₺</span>
+              </div>
+            )}
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setSatisModal(null)} style={{ flex:1, padding:11, borderRadius:10, border:"1px solid #2a2d3e", background:"transparent", color:"#64748b", fontWeight:600, cursor:"pointer", fontFamily:"'Outfit',sans-serif", fontSize:14 }}>İptal</button>
+              <button onClick={satisOnayla} style={{ flex:2, padding:11, borderRadius:10, border:"none", background:"linear-gradient(135deg,#2ed573,#00b894)", color:"#fff", fontWeight:700, cursor:"pointer", fontFamily:"'Outfit',sans-serif", fontSize:14 }}>✓ Satışı Onayla</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+        input::placeholder{color:#3d4a5c} select option{background:#1a1d2e}
+        *{scrollbar-width:thin;scrollbar-color:#2a2d3e transparent}
+      `}</style>
+    </div>
+  );
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
